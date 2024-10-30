@@ -1,42 +1,58 @@
 package id.ac.polbeng.srimulyaniadha.threadrunnable
 
-import android.annotation.SuppressLint
-import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
-import android.os.Handler
-import android.os.Message
+import android.widget.Toast
+import androidx.appcompat.app.AppCompatActivity
+import androidx.work.Constraints
+import androidx.work.ExistingWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkInfo
+import androidx.work.WorkManager
+import androidx.work.workDataOf
 import id.ac.polbeng.srimulyaniadha.threadrunnable.databinding.ActivityMainBinding
-
 class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
-    private lateinit var mHandler: Handler
-
+    private val workManager by lazy {
+        WorkManager.getInstance(applicationContext)
+    }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
-
-        mHandler = MyHandler()
-
+        val maxCounter = workDataOf(MyWorker.COUNTER to 20)
+        val constraints = Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.CONNECTED)
+            .setRequiresBatteryNotLow(true)
+            .setRequiresStorageNotLow(true)
+            .build()
+        val myWorker = OneTimeWorkRequestBuilder<MyWorker>()
+            .setInputData(maxCounter)
+            .setConstraints(constraints)
+            .build()
         binding.button.setOnClickListener {
-            Thread {
-                killSomeTime()
-            }.start()
+            workManager.enqueueUniqueWork(
+                "oneTimeRequest",
+                ExistingWorkPolicy.KEEP,
+                myWorker
+            )
         }
-    }
-    @SuppressLint("HandlerLeak")
-    inner class MyHandler : Handler() {
-        override fun handleMessage(msg: Message) {
-            binding.textView.text = msg.data?.getString("counter")
-        }
-    }
-    private fun killSomeTime() {
-        for (i in 1..20) {
-            val msg = Message.obtain()
-            msg.data.putString("counter", i.toString())
-            mHandler.sendMessage(msg)
-            Thread.sleep(2000)
-            println("i: $i")
-        }
+        WorkManager.getInstance(applicationContext)
+            // requestId is the WorkRequest id
+            .getWorkInfoByIdLiveData(myWorker.id)
+            .observe(this) { workInfo: WorkInfo? ->
+                if (workInfo != null) {
+                    val progress = workInfo.progress
+                    val value = progress.getInt(MyWorker.PROGRESS, 0)
+                    binding.textView.text = value.toString()
+                }
+                if (workInfo != null && workInfo.state ==
+                    WorkInfo.State.SUCCEEDED) {
+                    val message =
+                        workInfo.outputData.getString(MyWorker.MESSAGE)
+                    Toast.makeText(this, message,
+                        Toast.LENGTH_SHORT).show()
+                }
+            }
     }
 }
